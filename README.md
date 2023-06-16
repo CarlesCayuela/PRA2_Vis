@@ -6,6 +6,12 @@ Aquesta visualització mostra dades sobre el sanejament de les aigües residuals
 
 ## Contingut
 
+- [Instal·lació](#instal·lació)
+- [Ús](#ús)
+- [Crèdits](#credits)
+- [Llicència](#llicència)
+
+
 ## Instal·lació
 
 ## Ús
