@@ -11,8 +11,12 @@ Aquesta visualització mostra dades sobre el sanejament de les aigües residuals
 - [Crèdits](#credits)
 - [Llicència](#llicència)
 
+## Plataforma
 
-## Instal·lació
+## Execució
+Per executar la visualització des del codi cal obrir el fitxer:
+    
+    PRA2-CarlesCayuela.Rmd
 
 ## Ús
 
