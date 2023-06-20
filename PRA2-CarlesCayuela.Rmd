@@ -1,0 +1,289 @@
+---
+title: "Estat del Sanejament de les aigües residuals | WHO-UNICEF"
+author: "Carles Cayuela Linares"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+    theme:
+      version: 4
+      bg: "#3e3e3e"
+      fg: "#FDF7F7" 
+      primary: "#101010"
+      navbar-bg: "#000000"
+    source_code: embed
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(openxlsx)
+library(crosstalk)
+library(ggplot2)
+library(dplyr)
+library(plotly)
+library(rgdal)
+library(sf)
+library(leaflet)
+library(sp)
+library(stringr)
+library(DT)
+library(tidyverse)
+library(data.table)
+
+# DADES:
+
+# Conjunt de dades "WHO-UNICEF"
+dades <- read.xlsx("data/dades_who.xlsx", sheet = "Sanitation", startRow = 3)
+# Conjunt de dades "THe WORLD BANK"
+gdp_countries <- read.xlsx("data/GDP_world.xlsx") #https://data.worldbank.org/indicator/NY.GDP.MKTP.CD?end=2020&start=2020
+# Conjunt de dades espacials
+world_polygons <- read_sf("world-administrative-boundaries/world-administrative-boundaries.shp")
+
+
+# NETEJA I PREPARACIÓ DE DADES:
+
+## DADES AMB HISTÒRIC:
+dades_sanejament_hist <- dades %>%
+  select(COUNTRY, ISO3, Year, `%.urban`, `Population.(thousands)`, `At.least.basic._NATIONAL`, `Limited.(shared)_NATIONAL`, `Unimproved_NATIONAL`,
+         `Open.defecation_NATIONAL`, `Annual.rate.of.change.in.basic_NATIONAL`, `Annual.rate.of.change.in.open.defecation_NATIONAL`, `Safely.managed_NATIONAL`,
+         `Disposed.in.situ_NATIONAL`, `Emptied.and.treated_NATIONAL`, `Wastewater.treated_NATIONAL`, `Latrines.and.other_NATIONAL`, `Septic.tanks_NATIONAL`,
+         `Sewer.connections_NATIONAL`, `SDG.region`) %>%
+  mutate_all(funs(str_replace(., "&gt;99", "99.9"))) %>%
+  mutate_all(funs(str_replace(., "&lt;1", "0.01"))) %>%
+  mutate(across(`%.urban`:`Sewer.connections_NATIONAL`, as.numeric)) %>%
+  mutate(across(`%.urban`:`Sewer.connections_NATIONAL`, round, 2)) %>%
+  mutate(`Safely.managed_NATIONAL` = replace_na(`Safely.managed_NATIONAL`, 0)) %>% 
+  setNames(., c("Pais", "iso3", "Any", "Percent_urba", "Poblacio_milers", "Sanejament_basic", "Sanejament_limitat", "SanejamentNoMillorat", "Sense_Sanejament",
+                "Rati_canvi_sanejament_basic",  "Rati_canvi_Sense_Sanejament", "Gestionada_correctament", "Abocada sense tractat", "Abocada i Tractada", "Tractada",
+                "Latrines", "Fosses Sèptiques", "Recollida en col·lectors", "regio_SDG"))
+
+
+
+## Afegim el GDP com a indicador
+gdp_countries_long <- gdp_countries %>%
+  select(Country.Code, `2000`, `2001`, `2002`, `2003`, `2004`, `2005`, `2006`, `2007`, `2008`, `2009`, `2010`, `2011`, `2012`, `2013`, `2014`, 
+         `2015`, `2016`, `2017`, `2018`, `2019`, `2020`) %>% 
+  pivot_longer(!Country.Code, names_to = c("Any"), values_to = "GDP")
+
+dades_sanejament_hist <- left_join(dades_sanejament_hist, gdp_countries_long, by = c("iso3" = "Country.Code", "Any" = "Any"))
+# dades_sanejament_hist$GDP <- dades_sanejament_hist$GDP/1000000 # Convertir a Milions
+dades_sanejament_hist$Any <- as.numeric(dades_sanejament_hist$Any) 
+
+## Afegim el continent:
+dades_sanejament_hist <- merge(dades_sanejament_hist, world_polygons, by="iso3")
+
+
+## DADES ANY 2020:
+dades_subset_sanejament <- dades %>%
+  filter(Year == "2020") %>%
+  select(COUNTRY, ISO3, Year, `%.urban`, `Population.(thousands)`, `At.least.basic._NATIONAL`, `Limited.(shared)_NATIONAL`, `Unimproved_NATIONAL`,
+         `Open.defecation_NATIONAL`, `Annual.rate.of.change.in.basic_NATIONAL`, `Annual.rate.of.change.in.open.defecation_NATIONAL`, `Safely.managed_NATIONAL`,
+         `Disposed.in.situ_NATIONAL`, `Emptied.and.treated_NATIONAL`, `Wastewater.treated_NATIONAL`, `Latrines.and.other_NATIONAL`, `Septic.tanks_NATIONAL`,
+         `Sewer.connections_NATIONAL`) %>%
+  mutate_all(funs(str_replace(., "&gt;99", "99.9"))) %>%
+  mutate_all(funs(str_replace(., "&lt;1", "0.01"))) %>%
+  mutate(across(`%.urban`:`Sewer.connections_NATIONAL`, as.numeric)) %>%
+  mutate(across(`%.urban`:`Sewer.connections_NATIONAL`, round, 2)) %>%
+  mutate(`Safely.managed_NATIONAL` = replace_na(`Safely.managed_NATIONAL`, 0)) %>% 
+  setNames(., c("Pais", "iso3", "Any", "Percent_urba", "Poblacio_milers", "Sanejament_basic", "Sanejament_limitat", "SanejamentNoMillorat", "Sense_Sanejament",
+                "Rati_canvi_sanejament_basic",  "Rati_canvi_Sense_Sanejament", "Gestionada_correctament", "Abocada sense tractat", "Abocada i Tractada", "Tractada",
+                "Latrines", "Fosses Sèptiques", "Recollida en col·lectors"))
+
+
+# MAPA:
+world_polygons <- st_simplify(world_polygons)
+dades_map <- merge(world_polygons, dades_subset_sanejament, by = "iso3")
+
+# SHARED DATA:
+sd <- SharedData$new(dades_map)
+sd_hist <- SharedData$new(dades_sanejament_hist)
+
+
+# PALETTA DEL MAPA:
+pal <- colorNumeric(palette = "RdYlGn", domain = seq(0,100,1) )
+
+# SUNBURST
+DF_sunburst <- data.table(continent=dades_map$continent, pais=dades_map$Pais, valor=dades_map$Gestionada_correctament)
+
+## Funció per corregir el format de les dades:
+as.sunburstDF <- function(DF, value_column = NULL, add_root = FALSE){
+  require(data.table)
+  
+  colNamesDF <- names(DF)
+  
+  if(is.data.table(DF)){
+    DT <- copy(DF)
+  } else {
+    DT <- data.table(DF, stringsAsFactors = FALSE)
+  }
+  
+  if(add_root){
+    DT[, root := ""]  
+  }
+  
+  colNamesDT <- names(DT)
+  hierarchy_columns <- setdiff(colNamesDT, value_column)
+  DT[, (hierarchy_columns) := lapply(.SD, as.factor), .SDcols = hierarchy_columns]
+  
+  if(is.null(value_column) && add_root){
+    setcolorder(DT, c("root", colNamesDF))
+  } else if(!is.null(value_column) && !add_root) {
+    setnames(DT, value_column, "values", skip_absent=TRUE)
+    setcolorder(DT, c(setdiff(colNamesDF, value_column), "values"))
+  } else if(!is.null(value_column) && add_root) {
+    setnames(DT, value_column, "values", skip_absent=TRUE)
+    setcolorder(DT, c("root", setdiff(colNamesDF, value_column), "values"))
+  }
+  
+  hierarchyList <- list()
+  
+  for(i in seq_along(hierarchy_columns)){
+    current_columns <- colNamesDT[1:i]
+    if(is.null(value_column)){
+      currentDT <- unique(DT[, ..current_columns][, values := .N, by = current_columns], by = current_columns)
+    } else {
+      currentDT <- DT[, lapply(.SD, mean, na.rm = TRUE), by=current_columns, .SDcols = "values"]
+    }
+    setnames(currentDT, length(current_columns), "labels")
+    hierarchyList[[i]] <- currentDT
+  }
+  
+  hierarchyDT <- rbindlist(hierarchyList, use.names = TRUE, fill = TRUE)
+  
+  parent_columns <- setdiff(names(hierarchyDT), c("labels", "values", value_column))
+  hierarchyDT[, parents := apply(.SD, 1, function(x){fifelse(all(is.na(x)), yes = NA_character_, no = paste(x[!is.na(x)], sep = ":", collapse = " - "))}), .SDcols = parent_columns]
+  hierarchyDT[, ids := apply(.SD, 1, function(x){paste(x[!is.na(x)], collapse = " - ")}), .SDcols = c("parents", "labels")]
+  hierarchyDT[, c(parent_columns) := NULL]
+  return(hierarchyDT)
+}
+
+
+# Valueboxes:
+
+sanejament_basic <- sum(dades_subset_sanejament$Poblacio_milers*dades_subset_sanejament$Sanejament_basic/100, na.rm=T) / sum(dades_subset_sanejament$Poblacio_milers, na.rm=T) * 100
+
+sanejament_basic <- paste(round(sanejament_basic,2), "%")
+
+
+
+```
+
+<!-- Sanejament -->
+<!-- ======================================================================= -->
+
+Inputs {.sidebar}
+-----------------------------------------------------------------------
+
+Segons dades de l'Organització Mundial de la Slaut, **el sanejament de les aigües residuals** deficient és la causa principal d'unes 432.000 morts anuals i és un factor important en diverses malalties, com ara cucs intestinals, esquistosomiasi i tracoma. Un sanejament deficient també contribueix a la desnutrició.
+
+El **2020**, el 77% de la població mundial va utilitzar almenys un servei de sanejament bàsic; el 23% restant no va tenir accés al sanejament bàsic.
+
+A continuació es pot consultar per país l'**estat del sanejament de les aigües residuals**:
+
+
+```{r filters}
+#FILTRE:
+filter_select(
+  id = "id_Pais",
+  label = "Llistat de Països",
+  sharedData = sd,
+  group = ~Pais,
+  multiple = T
+)
+
+```
+
+El següent *slider* permet veure com evoluciona l’accés a un sanejament segur en funció del **Producte Interior Brut** de cada país.
+
+```{r}
+filter_slider(
+  id = "Any", 
+  label = "Any de consulta", 
+  sharedData = sd_hist, 
+  ~Any)
+```
+
+Column {data-width=600}
+-------------------------------------
+
+### de la població mundial té al menys sanejament bàsic garantit {.value-box}
+```{r}
+valueBox(sanejament_basic, icon = "fa-hand-holding-droplet")
+
+```
+
+
+### Percentatge de població amb accés a Sanejament bàsic al 2020
+    
+```{r}
+
+leaflet(sd) %>%
+  
+  setView(lng = 0, lat = 30, zoom = 2) %>%
+
+  addProviderTiles(providers$CartoDB.DarkMatter) %>%
+  
+  
+  addPolygons(fillColor = ~pal(Sanejament_basic), fillOpacity = 0.75, color="grey", weight = 1, 
+              popup = ~paste(
+                "<a style='color:#000000'> País: </a>", "<b style='color:#000000'>", Pais, "</b><br>",
+                "<a style='color:#000000'> Població sanejada: </a>", "<b style='color:#000000'>", Sanejament_basic, "%", "</b><br>")) %>%
+  
+  addLegend("bottomleft", title = "% de població", labFormat = labelFormat(suffix = "%"), pal = pal, values = ~Sanejament_basic, opacity = 0.75)
+  
+
+```
+
+Column {data-width=400}
+-------------------------------------
+
+### % de població assistida per sistemes de tractament gestionats amb seguretat
+
+
+```{r}
+
+sunburstDF <- as.sunburstDF(DF_sunburst, value_column = "valor", add_root = TRUE)
+
+plot_ly(data = sunburstDF, ids = ~ids, labels= ~labels, parents = ~parents, values= ~values, type='sunburst', branchvalues = 'relative') %>%
+  layout(
+         plot_bgcolor = "rgba(0,0,0,0)",
+         paper_bgcolor = "rgba(0,0,0,0)")
+
+
+```
+
+### Evolució de l'accés al sanejament bàsic
+
+```{r fig.height=6}
+
+t <- list(
+  family = "Courier New",
+  size = 12,
+  color = "white")
+
+colors <- c('red', 'darkgreen', '#ff850b', '#1972A4', '#965F8A')
+
+fig <- plot_ly(data = sd_hist, x = ~GDP, y = ~Sanejament_basic, mode = 'markers', type='scatter', color= ~continent, size= ~Poblacio_milers, colors= colors, 
+               marker = list(opacity = 0.8, line = list(width = 0.2, color = '#FFFFFF')),
+               text = ~paste('Country:', Pais, '<br>% població amb sanejament bàsic:', Sanejament_basic, '<br>Any:', Any,
+                      '<br>Població:', Poblacio_milers)
+               ) %>%
+    layout(
+      showlegend = FALSE,
+      plot_bgcolor = "rgba(0,0,0,0)",
+      paper_bgcolor = "rgba(0,0,0,0)",
+      xaxis = list(title = list(text = 'Producte Interior Brut (PIB) [$]', font = t), type = "log"),
+      yaxis = list(title = list(text = '% de població amb accés a sanejament bàsic', font=t)),
+      font=t
+      )
+fig 
+
+# sizemode = 'diameter',
+
+```
+
+
+
+
+
+
