@@ -13,9 +13,9 @@ I pretén respondre a les següents preguntes:
 
 S'han utilitzat 3 conjunts de dades.
 
-- [World_file.xlsx](https://washdata.org/data/downloads#WLD)
--
--
+- [dades_who.xlsx](https://washdata.org/data/downloads#WLD): Fitxer principal amb les dades sobre sanejament al món.
+- [GDP_world.xlsx](https://data.worldbank.org/indicator/NY.GDP.MKTP.CD?end=2020&start=2020): Dades sobre el PIB de cada país.
+- [world-administrative-boundaries.shp](https://public.opendatasoft.com/explore/dataset/world-administrative-boundaries/export/): Fitxer shp amb el límits dels països.
 
 ## Eines utilitzades
 
@@ -34,8 +34,8 @@ Per executar la visualització des del codi cal obrir el fitxer:
  
  Les dades estan a la carpeta /data/
 
-## Ús
-
 ## Crèdits
+La versió de la llibreria `crosstalk` utilitzada ha estat la desenvolupada per @dmurdoch (https://github.com/dmurdoch/crosstalk) que l'ha millorat per fer-la més compatible amb la llibreria `leaflet`
 
 ## Llicència
+GNU General Public License v3.0
